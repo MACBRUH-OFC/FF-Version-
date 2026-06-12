@@ -17,7 +17,6 @@ async def get_playstore_version():
         return None
 
 def parse_optional_files(version_string: str) -> dict:
-    """Converts a pipeline string like 'res:49|avatar:757' into a key-value dictionary."""
     if not version_string:
         return {}
     return {
@@ -27,7 +26,6 @@ def parse_optional_files(version_string: str) -> dict:
     }
 
 async def fetch_server_data(client: httpx.AsyncClient, url: str):
-    """Helper function to safely fetch and parse json from a server endpoint."""
     try:
         response = await client.get(url)
         if response.status_code == 200:
@@ -48,9 +46,8 @@ async def update():
     try:
         play_version = await get_playstore_version()
         
-        # Fallbacks to keep URLs valid if the scraper encounters a regional mismatch
         live_version_param = play_version if play_version else "1.123.1"
-        advance_version_param = "66.49.0"  # Dedicated test version for Advance Server endpoint alignment
+        advance_version_param = "66.49.0"  # Dedicated testing target version
         
         # 1. Reconstruct Live Server Target Link
         live_url = (
@@ -78,30 +75,32 @@ async def update():
             f"&whitelist_sp_version=1.0.0"
         )
 
-        # Fetch both server configurations concurrently to save execution speed
         async with httpx.AsyncClient(timeout=10) as client:
             live_task = fetch_server_data(client, live_url)
             advance_task = fetch_server_data(client, advance_url)
-            
             live_data, advance_data = await asyncio.gather(live_task, advance_task)
             
         # --- Process Live Data ---
         live_output = {
-            "live_version": live_data.get("remote_version"),
+            "live_version": live_data.get("remote_version", live_version_param),
             "ObVersion": live_data.get("latest_release_version"),
             "optional_files_version": parse_optional_files(live_data.get("remote_option_version", "")),
             "optional_files_version_astc": parse_optional_files(live_data.get("remote_option_version_astc", ""))
         }
         
-        # --- Process Advance Data ---
+        # --- Process Advance Data with Fallback Logic ---
+        # If remote_version is missing/null, it falls back onto your base target version (e.g., 66.49.0)
+        fetched_advance_version = advance_data.get("remote_version")
+        if not fetched_advance_version:
+            fetched_advance_version = advance_version_param
+
         advance_output = {
-            "advance_version": advance_data.get("remote_version"),
+            "advance_version": fetched_advance_version,
             "ObVersion": advance_data.get("latest_release_version"),
             "optional_files_version": parse_optional_files(advance_data.get("remote_option_version", "")),
             "optional_files_version_astc": parse_optional_files(advance_data.get("remote_option_version_astc", ""))
         }
 
-        # --- Combined Unified Response ---
         return {
             "success": True,
             "play_store_version": play_version,
