@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI
 from google_play_scraper import app as play_scraper
 import httpx
 import asyncio
@@ -6,15 +6,18 @@ import asyncio
 app = FastAPI()
 
 async def get_playstore_version():
-    loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(
-        None, 
-        lambda: play_scraper('com.dts.freefireth', lang='en', country='in')
-    )
-    return result.get("version") 
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, 
+            lambda: play_scraper('com.dts.freefireth', lang='en', country='in')
+        )
+        return result.get("version")
+    except Exception:
+        return None
 
 def parse_optional_files(version_string: str) -> dict:
-    """Helper to convert pipeline string formats like 'res:49|avatar:757' into an object."""
+    """Converts a pipeline string like 'res:49|avatar:757' into a key-value dictionary."""
     if not version_string:
         return {}
     return {
@@ -23,72 +26,88 @@ def parse_optional_files(version_string: str) -> dict:
         if ":" in item
     }
 
+async def fetch_server_data(client: httpx.AsyncClient, url: str):
+    """Helper function to safely fetch and parse json from a server endpoint."""
+    try:
+        response = await client.get(url)
+        if response.status_code == 200:
+            return response.json()
+    except Exception:
+        pass
+    return {}
+
 @app.get("/")
 async def home():
     return {
         "success": True, 
-        "endpoint": "/update",
-        "usage": "/update?server=live or /update?server=advance"
+        "endpoint": "/update"
     } 
 
 @app.get("/update")
-async def update(server: str = Query("live", regex="^(live|advance)$")):
+async def update():
     try:
         play_version = await get_playstore_version()
         
-        if server == "advance":
-            # Updated Advance Server Configuration matching IND regional patterns 
-            # Force target version if Play Store scraper gets out-of-sync for the Trial Server
-            version_param = "66.49.0" if not play_version else play_version
-            api_url = (
-                f"https://version.advance.freefiremobile.com/trial/ver.php"
-                f"?version={version_param}"
-                f"&lang=en"
-                f"&device=android"
-                f"&channel=android"
-                f"&appstore=googleplay"
-                f"&region=IND"
-                f"&whitelist_version=1.3.0"
-                f"&whitelist_sp_version=1.0.0"
-            )
-        else:
-            # Updated Live Server Configuration 
-            version_param = "1.123.1" if not play_version else play_version
-            api_url = (
-                f"https://version.ggwhitehawk.com/live/ver.php"
-                f"?version={version_param}"
-                f"&lang=en"
-                f"&device=android"
-                f"&channel=android"
-                f"&appstore=googleplay"
-                f"&region=IND"
-                f"&whitelist_version=1.3.0"
-                f"&whitelist_sp_version=1.0.0"
-            )
-
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(api_url)
-            data = response.json() if response.status_code == 200 else {}
-            
-        # Extract response payload parameters 
-        remote_version = data.get("remote_version")
-        ob_version = data.get("latest_release_version")
+        # Fallbacks to keep URLs valid if the scraper encounters a regional mismatch
+        live_version_param = play_version if play_version else "1.123.1"
+        advance_version_param = "66.49.0"  # Dedicated test version for Advance Server endpoint alignment
         
-        # Parse out both raw and ASTC specialized optional content packages
-        optional_packs = parse_optional_files(data.get("remote_option_version", ""))
-        optional_packs_astc = parse_optional_files(data.get("remote_option_version_astc", ""))
+        # 1. Reconstruct Live Server Target Link
+        live_url = (
+            f"https://version.ggwhitehawk.com/live/ver.php"
+            f"?version={live_version_param}"
+            f"&lang=en"
+            f"&device=android"
+            f"&channel=android"
+            f"&appstore=googleplay"
+            f"&region=IND"
+            f"&whitelist_version=1.3.0"
+            f"&whitelist_sp_version=1.0.0"
+        )
+        
+        # 2. Reconstruct Advance Server Target Link
+        advance_url = (
+            f"https://version.advance.freefiremobile.com/trial/ver.php"
+            f"?version={advance_version_param}"
+            f"&lang=en"
+            f"&device=android"
+            f"&channel=android"
+            f"&appstore=googleplay"
+            f"&region=IND"
+            f"&whitelist_version=1.3.0"
+            f"&whitelist_sp_version=1.0.0"
+        )
 
-        # Dynamically structure output fields based on targeted selection
-        output = {
-            "success": True,
-            "server_targeted": server,
-            f"{server}_version": remote_version,
-            "ObVersion": ob_version,
-            "optional_files_version": optional_packs,
-            "optional_files_version_astc": optional_packs_astc
+        # Fetch both server configurations concurrently to save execution speed
+        async with httpx.AsyncClient(timeout=10) as client:
+            live_task = fetch_server_data(client, live_url)
+            advance_task = fetch_server_data(client, advance_url)
+            
+            live_data, advance_data = await asyncio.gather(live_task, advance_task)
+            
+        # --- Process Live Data ---
+        live_output = {
+            "live_version": live_data.get("remote_version"),
+            "ObVersion": live_data.get("latest_release_version"),
+            "optional_files_version": parse_optional_files(live_data.get("remote_option_version", "")),
+            "optional_files_version_astc": parse_optional_files(live_data.get("remote_option_version_astc", ""))
         }
         
-        return output
+        # --- Process Advance Data ---
+        advance_output = {
+            "advance_version": advance_data.get("remote_version"),
+            "ObVersion": advance_data.get("latest_release_version"),
+            "optional_files_version": parse_optional_files(advance_data.get("remote_option_version", "")),
+            "optional_files_version_astc": parse_optional_files(advance_data.get("remote_option_version_astc", ""))
+        }
+
+        # --- Combined Unified Response ---
+        return {
+            "success": True,
+            "play_store_version": play_version,
+            "live_server": live_output,
+            "advance_server": advance_output
+        }
         
     except Exception as e:
         return {
