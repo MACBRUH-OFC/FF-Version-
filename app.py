@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from google_play_scraper import app as play_scraper
 import httpx
 import asyncio
@@ -38,21 +38,37 @@ async def fetch_server_data(client: httpx.AsyncClient, url: str):
 async def home():
     return {
         "success": True, 
-        "endpoint": "/update"
+        "endpoint": "/update",
+        "dynamic_usage": "/update?advance_base=66.49.0"
     } 
 
 @app.get("/update")
-async def update():
+async def update(advance_base: str = Query(None, description="Pass dynamic advance version parameter on the fly")):
     try:
+        # 1. Fetch live Play Store version dynamically
         play_version = await get_playstore_version()
         
-        live_version_param = play_version if play_version else "1.123.1"
-        advance_version_param = "66.49.0"  # Dedicated testing target version
-        
-        # 1. Reconstruct Live Server Target Link
+        if not play_version:
+            return {
+                "success": False,
+                "error": "Could not fetch dynamic play store version live. Ensure scraper is functioning."
+            }
+
+        # 2. Dynamically determine Advance Server query version parameter
+        # If you don't pass one via URL query, it automatically guesses by incrementing the major engine version
+        if not advance_base:
+            try:
+                major_version = int(play_version.split('.')[1])
+                advance_version_param = f"66.{major_version + 1}.0"
+            except Exception:
+                advance_version_param = play_version  # absolute fallback loop
+        else:
+            advance_version_param = advance_base
+
+        # 3. Dynamic Live Server Target Link (No hardcoded versions)
         live_url = (
             f"https://version.ggwhitehawk.com/live/ver.php"
-            f"?version={live_version_param}"
+            f"?version={play_version}"
             f"&lang=en"
             f"&device=android"
             f"&channel=android"
@@ -62,7 +78,7 @@ async def update():
             f"&whitelist_sp_version=1.0.0"
         )
         
-        # 2. Reconstruct Advance Server Target Link
+        # 4. Dynamic Advance Server Target Link (No hardcoded versions)
         advance_url = (
             f"https://version.advance.freefiremobile.com/trial/ver.php"
             f"?version={advance_version_param}"
@@ -82,20 +98,15 @@ async def update():
             
         # --- Process Live Data ---
         live_output = {
-            "live_version": live_data.get("remote_version", live_version_param),
+            "live_version": live_data.get("remote_version", play_version),
             "ObVersion": live_data.get("latest_release_version"),
             "optional_files_version": parse_optional_files(live_data.get("remote_option_version", "")),
             "optional_files_version_astc": parse_optional_files(live_data.get("remote_option_version_astc", ""))
         }
         
-        # --- Process Advance Data with Fallback Logic ---
-        # If remote_version is missing/null, it falls back onto your base target version (e.g., 66.49.0)
-        fetched_advance_version = advance_data.get("remote_version")
-        if not fetched_advance_version:
-            fetched_advance_version = advance_version_param
-
+        # --- Process Advance Data ---
         advance_output = {
-            "advance_version": fetched_advance_version,
+            "advance_version": advance_data.get("remote_version", advance_version_param),
             "ObVersion": advance_data.get("latest_release_version"),
             "optional_files_version": parse_optional_files(advance_data.get("remote_option_version", "")),
             "optional_files_version_astc": parse_optional_files(advance_data.get("remote_option_version_astc", ""))
