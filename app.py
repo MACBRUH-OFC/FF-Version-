@@ -51,20 +51,12 @@ async def update():
         )
 
         advance_url = (
-            f"https://version.advance.freefiremobile.com/trial/ver.php"
-            f"?version=68.54.0"
-            f"&lang=en"
-            f"&device=android"
-            f"&channel=android_max"
-            f"&appstore=trial"
-            f"&region=DEFAULT"
-            f"&release_version=OB54"
-            f"&whitelist_version="
-            f"&whitelist_sp_version="
-            f"&device_name=samsung%20SM-X910N"
-            f"&device_CPU=x86-64%20SSE3%20SSE4.1%20SSE4.2%20AVX"
-            f"&device_GPU=Adreno%20%28TM%29%20640"
-            f"&device_mem=3946"
+            "https://version.advance.freefiremobile.com/trial/ver.php"
+            "?version=0"
+            "&lang=en"
+            "&device=android"
+            "&channel=android_max"
+            "&appstore=trial"
         )
 
         async with httpx.AsyncClient(timeout=15) as client:
