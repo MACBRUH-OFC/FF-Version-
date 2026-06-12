@@ -51,7 +51,20 @@ async def update():
         )
 
         advance_url = (
-            "https://version.advance.freefiremobile.com/trial/ver.php"
+            f"https://version.advance.freefiremobile.com/trial/ver.php"
+            f"?version=68.54.0"
+            f"&lang=en"
+            f"&device=android"
+            f"&channel=android_max"
+            f"&appstore=trial"
+            f"&region=DEFAULT"
+            f"&release_version=OB54"
+            f"&whitelist_version="
+            f"&whitelist_sp_version="
+            f"&device_name=samsung%20SM-X910N"
+            f"&device_CPU=x86-64%20SSE3%20SSE4.1%20SSE4.2%20AVX"
+            f"&device_GPU=Adreno%20%28TM%29%20640"
+            f"&device_mem=3946"
         )
 
         async with httpx.AsyncClient(timeout=15) as client:
@@ -62,24 +75,22 @@ async def update():
             )
 
             live_data = live_response.json()
-
-            try:
-                advance_data = advance_response.json()
-            except:
-                advance_data = {
-                    "raw_response": advance_response.text
-                }
+            advance_data = advance_response.json()
 
         return {
             "success": True,
 
             "live": {
-                "remote_version": live_data.get("remote_version"),
-                "latest_release_version": live_data.get("latest_release_version"),
-                "play_store_version": play_version
+                "version": live_data.get("remote_version"),
+                "release": live_data.get("latest_release_version"),
+                "optional_files": live_data.get("remote_option_version")
             },
 
-            "advance": advance_data
+            "advance": {
+                "version": advance_data.get("remote_version"),
+                "release": advance_data.get("latest_release_version"),
+                "optional_files": advance_data.get("remote_option_version")
+            }
         }
 
     except Exception as e:
