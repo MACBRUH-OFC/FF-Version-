@@ -13,9 +13,9 @@ async def get_playstore_version():
     result = await loop.run_in_executor(
         None,
         lambda: play_scraper(
-            'com.dts.freefireth',
-            lang='bn',
-            country='bd'
+            "com.dts.freefireth",
+            lang="bn",
+            country="bd"
         )
     )
 
@@ -38,7 +38,7 @@ async def update():
 
         play_version = await get_playstore_version()
 
-        api_url = (
+        live_url = (
             f"https://version.ggwhitehawk.com/live/ver.php"
             f"?version={play_version}"
             f"&lang=bn"
@@ -50,17 +50,36 @@ async def update():
             f"&whitelist_sp_version=1.0.0"
         )
 
-        async with httpx.AsyncClient(timeout=10) as client:
+        advance_url = (
+            "https://version.advance.freefiremobile.com/trial/ver.php"
+        )
 
-            response = await client.get(api_url)
+        async with httpx.AsyncClient(timeout=15) as client:
 
-            data = response.json()
+            live_response, advance_response = await asyncio.gather(
+                client.get(live_url),
+                client.get(advance_url)
+            )
+
+            live_data = live_response.json()
+
+            try:
+                advance_data = advance_response.json()
+            except:
+                advance_data = {
+                    "raw_response": advance_response.text
+                }
 
         return {
             "success": True,
-            "remote_version": data.get("remote_version"),
-            "latest_release_version": data.get("latest_release_version"),
-            "play_store_version": play_version
+
+            "live": {
+                "remote_version": live_data.get("remote_version"),
+                "latest_release_version": live_data.get("latest_release_version"),
+                "play_store_version": play_version
+            },
+
+            "advance": advance_data
         }
 
     except Exception as e:
